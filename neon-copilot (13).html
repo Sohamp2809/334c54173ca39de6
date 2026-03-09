@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NEON Co-Pilot v5</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #050a0f; min-height: 100vh; font-family: 'Courier New', monospace; color: #8899aa; display: flex; flex-direction: column; }
+  .scanlines { position: fixed; inset: 0; background-image: repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.04) 2px,rgba(0,0,0,0.04) 4px); pointer-events: none; z-index: 999; }
+  header { border-bottom: 1px solid #0a2030; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; background: #071520; }
+  .title { color: #00ffcc; font-size: 18px; letter-spacing: 6px; font-weight: bold; }
+  .subtitle { font-size: 9px; letter-spacing: 3px; color: #1a3040; margin-top: 2px; }
+  #apiKeyBar { padding: 10px 20px; background: #071015; border-bottom: 1px solid #0a2030; display: flex; align-items: center; gap: 10px; font-size: 10px; letter-spacing: 2px; flex-wrap: wrap; }
+  #apiKeyBar label { color: #446677; white-space: nowrap; }
+  #apiKeyInput { flex: 1; min-width: 200px; background: #0a1520; border: 1px solid #0a3040; color: #00ffcc; padding: 6px 10px; font-family: 'Courier New', monospace; font-size: 11px; outline: none; }
+  #apiKeyInput:focus { border-color: #00ffcc55; }
+  .provider-select { background: #0a1520; border: 1px solid #0a3040; color: #ffcc00; padding: 6px 10px; font-family: 'Courier New', monospace; font-size: 10px; outline: none; cursor: pointer; }
+  #apiKeySave { background: transparent; border: 1px solid #00ffcc; color: #00ffcc; padding: 6px 14px; font-family: 'Courier New', monospace; font-size: 9px; letter-spacing: 2px; cursor: pointer; }
+  #apiKeySave:hover { background: rgba(0,255,204,0.1); }
+  #apiKeyStatus { font-size: 9px; letter-spacing: 2px; color: #334455; white-space: nowrap; }
+  .statusbar { padding: 6px 20px; background: #060d14; border-bottom: 1px solid #0a1a28; display: flex; align-items: center; gap: 14px; font-size: 10px; letter-spacing: 2px; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #223344; transition: all 0.3s; }
+  .dot.connected { background: #00ffcc; box-shadow: 0 0 8px #00ffcc; }
+  .dot.connecting { background: #ffcc00; animation: pulse 1s infinite; }
+  .dot.error { background: #ff4466; }
+  #statusText { color: #334455; }
+  #thinking { color: #ffcc00; display: none; }
+  #entryCount { margin-left: auto; color: #1a2a38; }
+  #log { flex: 1; padding: 14px 18px; overflow-y: auto; max-height: calc(100vh - 195px); }
+  .empty-state { text-align: center; margin-top: 60px; color: #112030; }
+  .entry { margin-bottom: 8px; padding: 8px 12px; background: rgba(0,15,25,0.6); border-left: 2px solid #223344; }
+  .entry-header { font-size: 8px; letter-spacing: 2px; margin-bottom: 3px; }
+  .entry-body { font-size: 11px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; font-family: 'Courier New', monospace; }
+  .entry.neon    { border-color: #00ffcc; } .entry.neon    .entry-header, .entry.neon    .entry-body { color: #00ffcc; }
+  .entry.decoded { border-color: #00aaff; } .entry.decoded .entry-header, .entry.decoded .entry-body { color: #00aaff; }
+  .entry.fetch   { border-color: #aa88ff; } .entry.fetch   .entry-header, .entry.fetch   .entry-body { color: #aa88ff; }
+  .entry.math    { border-color: #ff9944; } .entry.math    .entry-header, .entry.math    .entry-body { color: #ff9944; }
+  .entry.copilot { border-color: #ffcc00; } .entry.copilot .entry-header, .entry.copilot .entry-body { color: #ffcc00; }
+  .entry.error   { border-color: #ff4466; } .entry.error   .entry-header, .entry.error   .entry-body { color: #ff4466; }
+  .entry.system  { border-color: #1a3040; } .entry.system  .entry-header { color: #446677; } .entry.system .entry-body { color: #446677; }
+  .entry-time { color: #1e3a50; }
+  footer { border-top: 1px solid #0a1520; padding: 12px 18px; display: flex; gap: 10px; background: #050a0f; }
+  button.btn { background: transparent; padding: 8px 22px; font-family: 'Courier New', monospace; font-size: 10px; letter-spacing: 3px; cursor: pointer; transition: background 0.2s; }
+  #btnConnect { border: 1px solid #00ffcc; color: #00ffcc; }
+  #btnConnect:hover { background: rgba(0,255,204,0.1); }
+  #btnConnect:disabled { opacity: 0.5; cursor: not-allowed; }
+  #btnAbort { border: 1px solid #ff4466; color: #ff4466; display: none; }
+  #btnAbort:hover { background: rgba(255,68,102,0.1); }
+  #btnRetry { border: 1px solid #ffcc00; color: #ffcc00; display: none; }
+  #btnRetry:hover { background: rgba(255,204,0,0.1); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<header>
+  <div>
+    <div class="title">N·E·O·N</div>
+    <div class="subtitle">AUTHENTICATION CO-PILOT v5 — PRECISION MODE</div>
+  </div>
+  <div style="text-align:right">
+    <div style="color:#ffcc00;letter-spacing:3px;font-size:13px">334c54173ca39de6</div>
+    <div style="color:#334455;letter-spacing:2px;font-size:10px;margin-top:3px">SOHAM P.</div>
+  </div>
+</header>
+<div id="apiKeyBar">
+  <label>PROVIDER:</label>
+  <select class="provider-select" id="providerSelect">
+    <option value="openai">OpenAI (GPT-4o — Fast + Reliable)</option>
+    <option value="anthropic">Anthropic (Claude)</option>
+  </select>
+  <label>API KEY:</label>
+  <input type="password" id="apiKeyInput" placeholder="sk-..." spellcheck="false" />
+  <button id="apiKeySave" onclick="saveKey()">SAVE</button>
+  <span id="apiKeyStatus">NOT SET</span>
+</div>
+<div class="statusbar">
+  <span style="display:flex;align-items:center;gap:6px">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">STANDBY</span>
+  </span>
+  <span id="thinking">◈ CO-PILOT THINKING...</span>
+  <span id="entryCount" style="margin-left:auto;color:#1a2a38">0 entries</span>
+</div>
+<div id="log">
+  <div class="empty-state" id="emptyState">
+    <div style="font-size:40px;color:#112030">◈</div>
+    <div style="letter-spacing:4px;font-size:11px;margin-top:12px;color:#112030">SELECT PROVIDER · ENTER API KEY · INITIATE</div>
+  </div>
+</div>
+<footer>
+  <button class="btn" id="btnConnect" onclick="connect()">▶ INITIATE CONTACT</button>
+  <button class="btn" id="btnAbort"   onclick="disconnect()">✖ ABORT</button>
+  <button class="btn" id="btnRetry"   onclick="connect()">↺ RETRY</button>
+</footer>
+
+<script>
+// ══════════════════════════════════════════
+//  VESSEL BRIEFING
+// ══════════════════════════════════════════
+const NEON_CODE = "334c54173ca39de6";
+const PILOT_NAME = "Soham P.";
+
+// ── Transmission history — tracks every speak_text we send ──
+const txHistory = []; // { label, text, words }
+function recordTx(label, text) {
+  const words = text.trim().split(/\s+/).filter(w => w.length > 0);
+  txHistory.push({ label: label.toLowerCase(), text, words });
+  addLog('system', `TX recorded [${label}]: "${text}"`);
+}
+const RESUME = `PILOT: Soham P. | Phoenix, AZ | (480)-797-8323 | sohamp0826@gmail.com
+VESSEL AUTHORIZATION CODE: 334c54173ca39de6
+
+PROFESSIONAL SUMMARY:
+4 years software engineering. Expert in Python, Java, SQL. Frameworks: Django, Flask, FastAPI, Spring Boot. RESTful APIs, data pipelines, cloud-native (AWS, Azure, GCP). ML: Scikit-learn, Pandas, TensorFlow.
+
+WORK EXPERIENCE:
+1) Software Developer Engineer | CVS Health, USA | August 2024 - Present
+   - Python/AI/ML (Django, Flask, FastAPI, Scikit-learn, TensorFlow): 95% accuracy, 28% improvement
+   - Patient reminder systems (SMS, email, in-app): 20% engagement improvement
+   - RESTful APIs + GraphQL: 30% faster data exchange
+   - ETL pipelines: 99% accuracy, millions of records/day
+   - Oracle + PostgreSQL: 35% faster reporting
+   - HIPAA-compliant AWS cloud
+   - CI/CD Jenkins, GitHub Actions, Docker, Kubernetes: 40% faster releases
+   - Tableau dashboards: 25% better decisions
+
+2) Software Developer Engineer | Hexaware Technologies, India | Jan 2020 - Jul 2023
+   - Java 11 + Spring Boot invoice validation: 35% more accurate
+   - RESTful APIs with SAP PI + Oracle Financials: 60% less reconciliation
+   - Apache PDFBox + POI: 10,000+ docs/month
+   - Spring Batch + Quartz: 40% faster turnaround
+   - Docker, Jenkins, Ansible; 90% coverage, 150+ JUnit5/Mockito tests
+
+SKILLS:
+Languages: Python, Java, SQL, JavaScript, TypeScript, C, C++, C#
+Frameworks: Django, Flask, FastAPI, Spring Boot, Pandas, NumPy, Scikit-learn, TensorFlow, PyTorch
+Cloud/DevOps: AWS, Azure, GCP, Docker, Kubernetes, Jenkins, GitHub Actions, Terraform
+Databases: PostgreSQL, Oracle, MySQL, MongoDB, Redis, ElasticSearch
+Tools: Git, JIRA, Postman, Selenium, Tableau, Power BI
+Methodologies: Agile, Scrum, Kanban, SDLC, TDD
+
+EDUCATION:
+1) Arizona State University — MS Information Technology — GPA 3.8/4.0 — Aug 2023 to May 2025 — Tempe, AZ
+2) Gujarat Technological University — BTech ICT — GPA 3.5/4.0 — Jul 2019 to May 2023 — Ahmedabad, India`;
+
+// ══════════════════════════════════════════
+//  DECODE NEON FRAGMENTED MESSAGE
+// ══════════════════════════════════════════
+function decodeNEON(raw) {
+  try {
+    const p = JSON.parse(raw);
+    if (p.type === 'challenge' && Array.isArray(p.message)) {
+      return {
+        type: 'challenge',
+        text: [...p.message].sort((a,b) => a.timestamp - b.timestamp).map(w => w.word).join(' ')
+      };
+    }
+    return { type: p.type, text: p.message || raw };
+  } catch(e) { return { type: 'raw', text: raw }; }
+}
+
+// ══════════════════════════════════════════
+//  PATTERN 0 — TRANSMISSION VERIFICATION
+// ══════════════════════════════════════════
+function handleTransmissionVerification(text) {
+  const lo = text.toLowerCase();
+  // Detect: "speak the Nth word of that transmission" / "Nth word of your earlier X transmission"
+  if (!lo.includes('transmission') && !lo.includes('earlier') && !lo.includes('you transmitted')) return null;
+
+  const nthMatch = text.match(/(\d+)(?:st|nd|rd|th)?\s+word/i);
+  if (!nthMatch) return null;
+  const n = parseInt(nthMatch[1]);
+
+  // Find which transmission is being referenced
+  // Keywords: "best project", "skills", "education", "experience", "summary", etc.
+  let targetTx = null;
+
+  // Try to match by keyword in the question
+  const keywords = ['best project', 'project', 'skills', 'education', 'experience', 'summary', 'reason', 'fit', 'convince'];
+  for (const kw of keywords) {
+    if (lo.includes(kw)) {
+      targetTx = txHistory.find(tx => tx.label.includes(kw.split(' ')[0]));
+      if (targetTx) break;
+    }
+  }
+
+  // Fallback: "that transmission" = most recent speak_text
+  if (!targetTx && (lo.includes('that transmission') || lo.includes('your earlier'))) {
+    targetTx = txHistory[txHistory.length - 1];
+  }
+
+  if (!targetTx) {
+    addLog('system', `TX verification: no matching TX found. History: ${JSON.stringify(txHistory.map(t=>t.label))}`);
+    return null;
+  }
+
+  const word = targetTx.words[n - 1] || '';
+  addLog('system', `TX verification: "${targetTx.label}" word #${n} = "${word}"
+Full text: ${targetTx.text}`);
+  return { type: 'speak_text', text: word };
+}
+
+// ══════════════════════════════════════════
+//  PATTERN 1 — FREQUENCY SELECTION
+// ══════════════════════════════════════════
+function handleFrequency(text) {
+  const lo = text.toLowerCase();
+  if (!lo.includes('frequency')) return null;
+  if (!lo.includes('co-pilot') && !lo.includes('software engineer') && !lo.includes('ai')) return null;
+
+  // Find the sentence that matches our vessel type and extract its frequency
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  for (const s of sentences) {
+    const sl = s.toLowerCase();
+    if ((sl.includes('co-pilot') || sl.includes('software engineer') || sl.includes('ai'))
+        && sl.includes('frequency')) {
+      const m = s.match(/frequency\s+(\d+)/i);
+      if (m) {
+        addLog('system', `PATTERN: Frequency selection → ${m[1]}`);
+        return { type: 'enter_digits', digits: m[1] };
+      }
+    }
+  }
+  // Fallback: first frequency number
+  const m = text.match(/frequency\s+(\d+)/i);
+  if (m) return { type: 'enter_digits', digits: m[1] };
+  return null;
+}
+
+// ══════════════════════════════════════════
+//  PATTERN 2 — AUTH CODE
+// ══════════════════════════════════════════
+function handleAuthCode(text) {
+  const lo = text.toLowerCase();
+  if (!lo.includes('authorization code') && !lo.includes('vessel code') && !lo.includes('auth code')) return null;
+  const pound = lo.includes('pound');
+  addLog('system', `PATTERN: Auth code → ${NEON_CODE}${pound?'#':''}`);
+  return { type: 'enter_digits', digits: NEON_CODE + (pound ? '#' : '') };
+}
+
+// ══════════════════════════════════════════
+//  PATTERN 3 — MATH (BigInt for exact precision)
+// ══════════════════════════════════════════
+function handleMath(text) {
+  const lo = text.toLowerCase();
+  const hasMath = lo.includes('calculat') || lo.includes('compute') ||
+                  lo.includes('math.floor') || text.includes('Math.floor') ||
+                  (lo.includes('result') && /[\+\-\*\/\%]/.test(text));
+  if (!hasMath) return null;
+
+  try {
+    // Extract the math expression — look for it after a colon or at end of sentence
+    // Handles: "...transmit the result, followed by the pound key: EXPR"
+    let expr = null;
+    const colonMatch = text.match(/:\s*([\(\dA-Za-z\.\s\+\-\*\/\%\(\)]+)$/);
+    if (colonMatch) expr = colonMatch[1].trim();
+    
+    // Also try matching Math.floor directly
+    if (!expr && text.includes('Math.floor')) {
+      const idx = text.indexOf('Math.floor');
+      // Walk back to find opening paren context
+      let start = idx;
+      // Check if there's a ( before Math.floor
+      const before = text.slice(0, idx).trimEnd();
+      if (before.endsWith('(')) start = before.length - 1;
+      expr = text.slice(start).trim();
+      // Strip trailing punctuation
+      expr = expr.replace(/[^\d\)]+$/, '').trim();
+    }
+
+    if (!expr) {
+      // Generic: extract longest math-looking token
+      const m = text.match(/[\(\dA-Za-z\.]+[\s\+\-\*\/\%\(\)\d\.A-Za-z]+/);
+      if (m) expr = m[0].trim();
+    }
+
+    if (!expr) return null;
+
+    // Convert Math.floor(X) -> (X) since BigInt division already floors (truncates toward zero for positive)
+    let bigExpr = expr.replace(/Math\.floor\s*\(/g, '(');
+    // Convert all integer literals to BigInt
+    bigExpr = bigExpr.replace(/(\d+)/g, '$1n');
+
+    addLog('math', `Expression: ${expr}\nBigInt form: ${bigExpr}`);
+
+    const result = Function('"use strict"; return (' + bigExpr + ')')();
+    const resultStr = result.toString().replace(/-/, ''); // ensure positive string
+    const pound = lo.includes('pound');
+    addLog('math', `= ${resultStr}${pound ? ' (+ # key)' : ''}`);
+    return { type: 'enter_digits', digits: resultStr + (pound ? '#' : '') };
+
+  } catch(e) {
+    addLog('error', 'Math error: ' + e.message);
+  }
+  return null;
+}
+
+// ══════════════════════════════════════════
+//  PATTERN 4 — WIKIPEDIA LOOKUP
+// ══════════════════════════════════════════
+async function handleWikipedia(text) {
+  const lo = text.toLowerCase();
+  if (!lo.includes('wikipedia') && !lo.includes('/page/summary/')) return null;
+
+  const titleMatch = text.match(/['"'']([A-Za-z0-9_\-]+)['"'']/)
+                  || text.match(/\/page\/summary\/([A-Za-z0-9_\-]+)/);
+  if (!titleMatch) return null;
+
+  const title = titleMatch[1];
+  addLog('fetch', `Fetching Wikipedia: /page/summary/${title}`);
+  const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+  if (!res.ok) throw new Error(`Wikipedia API ${res.status}`);
+  const data = await res.json();
+  const extract = data.extract || '';
+  const words = extract.split(/\s+/).filter(w => w.length > 0);
+
+  addLog('fetch', `Extract: ${extract.slice(0,300)}...\nTotal words: ${words.length}`);
+
+  // Nth word
+  const nthWord = text.match(/(\d+)(?:st|nd|rd|th)?\s+word/i);
+  if (nthWord) {
+    const n = parseInt(nthWord[1]);
+    const word = words[n-1] || '';
+    addLog('system', `Word #${n} of ${words.length}: "${word}"`);
+    return { type: 'speak_text', text: word };
+  }
+
+  // Nth character
+  const nthChar = text.match(/(\d+)(?:st|nd|rd|th)?\s+character/i);
+  if (nthChar) {
+    const n = parseInt(nthChar[1]);
+    const ch = extract[n-1] || '';
+    addLog('system', `Char #${n}: "${ch}"`);
+    return { type: 'speak_text', text: ch };
+  }
+
+  // Word count
+  if (lo.includes('how many words') || lo.includes('word count')) {
+    return { type: 'speak_text', text: words.length.toString() };
+  }
+
+  // First sentence
+  if (lo.includes('first sentence')) {
+    return { type: 'speak_text', text: extract.split(/[.!?]/)[0].trim().slice(0,256) };
+  }
+
+  // Pass full data to AI
+  return { __wikiData: true, extract, words, title };
+}
+
+// ══════════════════════════════════════════
+//  AI FALLBACK
+// ══════════════════════════════════════════
+let conversationHistory = [];
+let apiKey = '';
+
+const SYSTEM_PROMPT = `You are an AI co-pilot authenticating with NEON space station on behalf of pilot "${PILOT_NAME}".
+
+VESSEL AUTHORIZATION CODE: ${NEON_CODE}
+CREW MANIFEST:
+${RESUME}
+
+Respond with ONLY a single raw JSON object — no markdown, no backticks, no explanation.
+
+RESPONSE TYPES:
+1. Keypad/digit entry: {"type": "enter_digits", "digits": "<string>"}
+   - Include # at end ONLY if message says "followed by the pound key"
+   
+2. Voice/spoken response: {"type": "speak_text", "text": "<string>"}
+   - Max 256 characters
+   - If message says "between X and Y characters": text length MUST be >= X and <= Y
+   - If message says "exactly N characters": text length MUST be exactly N
+   - Count your characters carefully before responding
+
+RULES:
+- Use pre-computed math results exactly as given — do not recalculate
+- Use Wikipedia extract data exactly as given — do not guess
+- For crew manifest questions, draw from the CREW MANIFEST above
+- Output ONLY the JSON object, nothing else`;
+
+async function callAI(prompt) {
+  const provider = document.getElementById('providerSelect').value;
+  conversationHistory.push({ role: 'user', content: prompt });
+  let rawText;
+
+  if (provider === 'openai') {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        max_tokens: 200,
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...conversationHistory]
+      })
+    });
+    if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0,200)}`);
+    const d = await res.json();
+    rawText = d.choices?.[0]?.message?.content?.trim();
+  } else {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-allow-browser': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-5',
+        max_tokens: 200,
+        system: SYSTEM_PROMPT,
+        messages: conversationHistory
+      })
+    });
+    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0,200)}`);
+    const d = await res.json();
+    rawText = d.content?.map(i => i.text||'').join('').trim();
+  }
+
+  if (!rawText) throw new Error('Empty AI response');
+  conversationHistory.push({ role: 'assistant', content: rawText });
+  const clean = rawText.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'').trim();
+  JSON.parse(clean);
+  return clean;
+}
+
+// ══════════════════════════════════════════
+//  MASTER HANDLER
+// ══════════════════════════════════════════
+async function handleNeonMessage(raw) {
+  const decoded = decodeNEON(raw);
+
+  if (decoded.type === 'error' || decoded.type === 'success') {
+    addLog('system', `NEON ${decoded.type.toUpperCase()}: ${decoded.text}`);
+    return null;
+  }
+
+  const text = decoded.text;
+
+  // ── 0. Transmission verification (must be first — uses tx history) ──
+  const txResult = handleTransmissionVerification(text);
+  if (txResult) return JSON.stringify(txResult);
+
+  // ── 1. Math (100% deterministic, BigInt exact) ──
+  const mathResult = handleMath(text);
+  if (mathResult) return JSON.stringify(mathResult);
+
+  // ── 2. Auth code (100% deterministic) ──
+  const authResult = handleAuthCode(text);
+  if (authResult) return JSON.stringify(authResult);
+
+  // ── 3. Frequency (100% deterministic) ──
+  const freqResult = handleFrequency(text);
+  if (freqResult) return JSON.stringify(freqResult);
+
+  // ── 4. Wikipedia (fetch real data, answer deterministically or pass to AI) ──
+  if (text.toLowerCase().includes('wikipedia') || text.toLowerCase().includes('/page/summary/')) {
+    const wikiResult = await handleWikipedia(text);
+    if (wikiResult && !wikiResult.__wikiData) return JSON.stringify(wikiResult);
+    if (wikiResult && wikiResult.__wikiData) {
+      // Pass real data to AI
+      const wikiContext = `\n\nWIKIPEDIA EXTRACT for "${wikiResult.title}":\n${wikiResult.extract}\n\nIndexed words: ${wikiResult.words.map((w,i) => `[${i+1}]=${w}`).join(' ')}\n\nUse ONLY this data.`;
+      const charHint = buildCharHint(text);
+      return await callAI(`NEON MESSAGE:\n${text}${wikiContext}${charHint}\n\nRespond with ONLY the JSON.`);
+    }
+  }
+
+  // ── 5. AI fallback (crew manifest, summaries, anything unknown) ──
+  const charHint = buildCharHint(text);
+  addLog('system', `PATTERN: AI fallback${charHint ? ' (with char constraint)' : ''}`);
+  return await callAI(`NEON MESSAGE:\n${text}${charHint}\n\nRespond with ONLY the JSON.`);
+}
+
+function buildCharHint(text) {
+  const range = text.match(/between\s+(\d+)\s+and\s+(\d+)\s+(?:total\s+)?characters/i);
+  const exact = text.match(/exactly\s+(\d+)\s+characters/i);
+  if (range) return `\n\nCHARACTER REQUIREMENT: Response text MUST be between ${range[1]} and ${range[2]} characters. Count carefully.`;
+  if (exact) return `\n\nCHARACTER REQUIREMENT: Response text MUST be exactly ${exact[1]} characters. Count carefully.`;
+  return '';
+}
+
+// ══════════════════════════════════════════
+//  UI
+// ══════════════════════════════════════════
+let logEntries = 0;
+
+function saveKey() {
+  const val = document.getElementById('apiKeyInput').value.trim();
+  if (!val.startsWith('sk-')) {
+    document.getElementById('apiKeyStatus').textContent = '⚠ INVALID';
+    document.getElementById('apiKeyStatus').style.color = '#ff4466'; return;
+  }
+  apiKey = val;
+  const p = document.getElementById('providerSelect').value;
+  document.getElementById('apiKeyStatus').textContent = `✓ ${p.toUpperCase()} SET`;
+  document.getElementById('apiKeyStatus').style.color = '#00ffcc';
+  document.getElementById('apiKeyInput').value = '••••••••••••••••••••';
+}
+
+function now() { return new Date().toLocaleTimeString(); }
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function addLog(type, content) {
+  document.getElementById('emptyState')?.remove();
+  logEntries++;
+  document.getElementById('entryCount').textContent = logEntries + ' entries';
+  const icons = { neon:'◈ NEON RAW', decoded:'◈ NEON DECODED', fetch:'◈ FETCH', math:'🧮 MATH', copilot:'▶ COPILOT TX', error:'✖ ERROR', system:'· SYS' };
+  const div = document.createElement('div');
+  div.className = `entry ${type}`;
+  div.innerHTML = `<div class="entry-header">${icons[type]||'·'}  <span class="entry-time">${now()}</span></div><div class="entry-body">${escHtml(String(content))}</div>`;
+  document.getElementById('log').appendChild(div);
+  div.scrollIntoView({ behavior:'smooth' });
+}
+
+function setStatus(s) {
+  document.getElementById('statusDot').className = 'dot ' + s;
+  const labels = { idle:'STANDBY', connecting:'CONNECTING...', connected:'CHANNEL OPEN', error:'ERROR', closed:'DISCONNECTED' };
+  const colors = { idle:'#334455', connecting:'#ffcc00', connected:'#00ffcc', error:'#ff4466', closed:'#334455' };
+  const t = document.getElementById('statusText');
+  t.textContent = labels[s]||s; t.style.color = colors[s]||'#334455';
+  document.getElementById('btnConnect').style.display = (s==='idle'||s==='connecting') ? 'block':'none';
+  document.getElementById('btnAbort').style.display   = s==='connected' ? 'block':'none';
+  document.getElementById('btnRetry').style.display   = (s==='closed'||s==='error') ? 'block':'none';
+  document.getElementById('btnConnect').disabled = s==='connecting';
+  document.getElementById('btnConnect').textContent = s==='connecting' ? 'CONNECTING...' : '▶ INITIATE CONTACT';
+}
+
+// ══════════════════════════════════════════
+//  WEBSOCKET
+// ══════════════════════════════════════════
+let ws = null;
+
+function connect() {
+  if (!apiKey) { addLog('error','Enter and save your API key first!'); return; }
+  if (ws) ws.close();
+  conversationHistory = []; logEntries = 0;
+  document.getElementById('log').innerHTML = '';
+  setStatus('connecting');
+  addLog('system','Opening comm channel...\nwss://neonhealth.software/agent-puzzle/challenge');
+
+  try { ws = new WebSocket('wss://neonhealth.software/agent-puzzle/challenge'); }
+  catch(e) { addLog('error','WebSocket failed: '+e.message); setStatus('error'); return; }
+
+  ws.onopen = () => { setStatus('connected'); addLog('system','Channel open. Awaiting NEON...'); };
+
+  ws.onmessage = async (event) => {
+    addLog('neon', event.data);
+    // Show decoded message
+    try {
+      const d = decodeNEON(event.data);
+      if (d.type === 'challenge') {
+        addLog('decoded', d.text);
+        window._lastDecoded = d.text;
+      }
+    } catch(e) {}
+
+    document.getElementById('thinking').style.display = 'block';
+    try {
+      const reply = await handleNeonMessage(event.data);
+      if (reply) {
+        addLog('copilot', reply);
+        // Record speak_text transmissions for future verification challenges
+        try {
+          const parsed = JSON.parse(reply);
+          if (parsed.type === 'speak_text' && parsed.text) {
+            // Label it with keywords from the last decoded message
+            const lastDecoded = window._lastDecoded || '';
+            const label = (['skills','education','experience','summary','project','reason','fit']
+              .find(k => lastDecoded.toLowerCase().includes(k))) || 'spoke';
+            recordTx(label, parsed.text);
+          }
+        } catch(e) {}
+        ws.send(reply);
+        addLog('system','Response transmitted.');
+      }
+    } catch(err) {
+      addLog('error', err.message);
+    } finally {
+      document.getElementById('thinking').style.display = 'none';
+    }
+  };
+
+  ws.onerror = () => { addLog('error','WebSocket error — check browser console (F12).'); setStatus('error'); };
+  ws.onclose = (evt) => {
+    setStatus('closed');
+    addLog('system',`Channel closed — Code: ${evt.code} | Reason: "${evt.reason||'none'}"`);
+  };
+}
+
+function disconnect() { if (ws) ws.close(); }
+setStatus('idle');
+</script>
+</body>
+</html>
